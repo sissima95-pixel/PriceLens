@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asin-pricelens"
+version = "1.1.0"
+description = "ASIN PriceLens 价格透镜 — AST-internal batch Amazon ASIN price fetcher across 17 marketplaces"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "AST-CN LCS" }]
+license = { text = "Amazon Internal Use Only" }
+dependencies = [
+    "requests>=2.28.0",
+    "openpyxl>=3.0",
+]
+
+[project.scripts]
+pricelens = "pricelens.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pricelens*"]
