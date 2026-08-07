@@ -295,9 +295,9 @@ def main(argv=None) -> int:
     )
     elapsed = time.time() - t0
 
-    csv_path = out_dir / f"asin_prices_{ts}.csv"
-    html_path = out_dir / f"asin_prices_{ts}.html"
-    write_csv(results, csv_path)
+    detail_path = out_dir / f"asin_detail_{ts}.xlsx"
+    html_path = out_dir / f"\u7ade\u54c1ASIN\u5206\u6790\u62a5\u544a_{ts}.html"
+    write_csv(results, detail_path)
     write_html(results, html_path, title=args.title, subtitle=args.subtitle)
 
     ok = sum(1 for r in results if r.status == "ok")
@@ -305,8 +305,8 @@ def main(argv=None) -> int:
     print("=" * 70, file=sys.stderr)
     print(f" ✓ Done in {elapsed:.1f}s · {ok}/{len(results)} priced successfully",
           file=sys.stderr)
-    print(f" ✓ CSV:  {csv_path.resolve()}", file=sys.stderr)
-    print(f" ✓ HTML: {html_path.resolve()}", file=sys.stderr)
+    print(f" ✓ Excel: {detail_path.resolve()}", file=sys.stderr)
+    print(f" ✓ HTML:  {html_path.resolve()}", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
 
     # Print machine-readable summary to stdout for agents
