@@ -125,21 +125,21 @@ Accepts `.xlsx`, `.csv`, `.tsv`, or `.txt` files. Auto-detects optional columns:
 ## Output
 
 Two timestamped files in the output directory:
-- `asin_prices_YYYYMMDD_HHMMSS.csv` — raw detail, one row per (ASIN × market)
-- `asin_prices_YYYYMMDD_HHMMSS.html` — interactive report:
+- `asin_detail_YYYYMMDD_HHMMSS.xlsx` — styled Excel detail (Segoe UI, colored header, alternating rows, frozen pane)
+- `竞品ASIN分析报告_YYYYMMDD_HHMMSS.html` — interactive report:
   - Per-market tabs
   - KPI cards (priced count, min/max/median price, brands)
-  - Price Segments chart (adaptive 3 or 4 tiers)
+  - Price Segments chart (3 equal-width tiers: Entry / Mid-tier / Premium)
   - Top Brands horizontal bar chart
   - Search Volume by ASIN (Top 30, horizontal bar, color-coded)
   - Volume Trend line chart (if time-series data provided)
   - Detail table with per-column sort + filter popups
 
-## Smart price banding
+## Price banding
 
-- Price spread < 3× → 3 tiers (Entry / Mid-tier / Premium)
-- Price spread > 5× AND n ≥ 20 → 4 tiers (Entry / Mainstream / Premium / Flagship)
-- Boundaries use quantile splits for n ≥ 12, equal-width for smaller samples
+- Always 3 tiers: Entry / Mid-tier / Premium
+- Equal-width price spans across the full category range (each tier covers the same dollar amount)
+- Reflects actual category price structure — avoids over-segmenting the low end
 
 ## Failure modes
 

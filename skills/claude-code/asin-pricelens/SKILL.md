@@ -81,10 +81,10 @@ Common presets:
 ## Output
 
 Two files in the output directory (timestamped):
-- `asin_prices_*.csv` — raw detail (one row per ASIN × market)
-- `asin_prices_*.html` — interactive report:
+- `asin_detail_*.xlsx` — styled Excel detail (Segoe UI, colored header, frozen pane)
+- `竞品ASIN分析报告_*.html` — interactive report:
   - Per-market tabs, KPI cards
-  - Price Segments (adaptive 3/4 tiers)
+  - Price Segments (3 equal-width tiers: Entry / Mid-tier / Premium)
   - Top Brands chart
   - Search Volume by ASIN (Top 30, horizontal bar)
   - Volume Trend line chart (if time-series data present)
