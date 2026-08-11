@@ -288,48 +288,46 @@ def _parse_price(html: str, result: PriceResult) -> None:
     m = _TITLE_PATTERN.search(html)
     if m:
         result.title = _clean(m.group(1))[:200]
-    # Brand extraction — strategy:
-    #   Primary: the FIRST WORDS OF TITLE (Amazon convention: brand goes first)
-    #     — this matches customer perception (e.g. "Tapo" not "TP-Link" parent)
-    #   Fallback: storefront/anchor/table/JSON, in that order
+    # Brand extraction — strategy (revised 2026-08-11):
+    #   Primary: byline / storefront (authoritative brand attribution from Amazon)
+    #   Fallback: title first words (only when byline is unavailable)
     #
-    # This ordering was chosen after observing that Amazon's official brand
-    # attribution often points to the parent company (TP-Link) while shoppers
-    # search by sub-brand (Tapo). Title-first captures shopper vocabulary.
+    # Previous title-first approach failed for categories where listings
+    # start with descriptive words (e.g. "Portable Fan", "Wireless Camera").
+    # Byline-first is more reliable across all categories.
     brand = ""
 
-    if result.title:
-        brand = _title_first_words(result.title)
+    # 1. Byline anchor text ("Visit the X Store")
+    m = _BRAND_ANCHOR.search(html)
+    if m:
+        b = _clean(m.group(1))
+        b = re.sub(
+            r'^(Visit the|Besuche den|Visita la|Visitez la|Visitez le|'
+            r'Bezoek de|Visita la Store di|Ir a la tienda de|'
+            r'\u30d6\u30e9\u30f3\u30c9\u30b9\u30c8\u30a2|'
+            r'Marca:|Marque:|Brand:|Marka:)\s*',
+            '', b, flags=re.I)
+        b = re.sub(
+            r'\s*(Store|-Store|-Shop|\u306e\u30b9\u30c8\u30a2|Storefront)\s*$',
+            '', b, flags=re.I)
+        if b and len(b) < 60:
+            brand = b.strip()
 
-    # If title didn't yield a plausible brand (empty, too long, generic word),
-    # fall back to storefront sources
-    if not brand or len(brand) > 30 or brand.lower() in (
-            "amazon", "the", "new", "genuine", "original"):
-        m = _BRAND_ANCHOR.search(html)
-        if m:
-            b = _clean(m.group(1))
-            b = re.sub(
-                r'^(Visit the|Besuche den|Visita la|Visitez la|Visitez le|'
-                r'Bezoek de|Visita la Store di|Ir a la tienda de|'
-                r'\u30d6\u30e9\u30f3\u30c9\u30b9\u30c8\u30a2|'
-                r'Marca:|Marque:|Brand:|Marka:)\s*',
-                '', b, flags=re.I)
-            b = re.sub(
-                r'\s*(Store|-Store|-Shop|\u306e\u30b9\u30c8\u30a2|Storefront)\s*$',
-                '', b, flags=re.I)
-            if b:
-                brand = b.strip()
-
+    # 2. Store URL (new style: /stores/BRAND/page/)
     if not brand:
         m = _BRAND_STORE_URL_NEW.search(html)
         if m:
             brand = _clean(m.group(1)).replace("-", " ")
+
+    # 3. Store URL (old style: /BRAND/b/ref=)
     if not brand:
         m = _BRAND_STORE_URL_OLD.search(html)
         if m:
             slug = _clean(m.group(1))
             if slug and len(slug) > 1 and slug.lower() not in ("sp", "s", "gp", "b"):
                 brand = slug.replace("-", " ")
+
+    # 4. Product detail table ("Brand: X")
     if not brand:
         m = _BRAND_TABLE.search(html)
         if m:
@@ -337,10 +335,16 @@ def _parse_price(html: str, result: PriceResult) -> None:
             if b and len(b) < 60 and not any(x in b.lower() for x in
                 ("category", "amazon", "this item")):
                 brand = b
+
+    # 5. JSON payload ("brand":"X")
     if not brand:
         m = _BRAND_JSON.search(html)
         if m:
             brand = _clean(m.group(1))
+
+    # 6. Last resort: title first words
+    if not brand and result.title:
+        brand = _title_first_words(result.title)
 
     result.brand = brand[:80]
     # Delivery location (for verification)
