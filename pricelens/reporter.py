@@ -254,7 +254,7 @@ def _render_market_panel(mk: str, mrows: list[dict], active: str,
             parts = label.split("\n")
             tier_name = html_mod.escape(parts[0])
             tier_range = html_mod.escape(parts[1]) if len(parts) > 1 else ""
-            band_html += f'''<div class="hbar-row">
+            band_html += f'''<div class="hbar-row clickable-bar" data-filter-type="price" data-filter-value="{tier_name}" data-market="{mk}">
               <div class="hbar-label">{tier_name} <span class="hbar-sub">{tier_range}</span></div>
               <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:#2563EB"></div></div>
               <div class="hbar-val">{count}</div>
@@ -274,37 +274,17 @@ def _render_market_panel(mk: str, mrows: list[dict], active: str,
         for i, (bname, bcount) in enumerate(top_brands):
             pct = bcount / max_bc * 100
             color = _BAR_COLORS[i % len(_BAR_COLORS)]
-            brand_html += f'''<div class="hbar-row">
+            brand_html += f'''<div class="hbar-row clickable-bar" data-filter-type="brand" data-filter-value="{html_mod.escape(bname)}" data-market="{mk}">
               <div class="hbar-label">{html_mod.escape(bname)}</div>
               <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:{color}"></div></div>
               <div class="hbar-val">{bcount}</div>
             </div>'''
         brand_html += '</div>'
 
-    # Search Volume by ASIN (Top 30)
+    # Search Volume by ASIN — JS-driven dynamic chart (filtered by price/brand clicks)
     vol_bar_html = ""
     if has_sv:
-        vol_items = [(r.get("asin", ""), r.get("brand", ""), r.get("search_volume", 0) or 0)
-                     for r in mrows if r.get("search_volume")]
-        vol_items.sort(key=lambda x: -x[2])
-        vol_items = vol_items[:30]
-        if vol_items:
-            max_vol = vol_items[0][2] or 1
-            vol_bar_html = '<div class="section"><div class="section-title">Search Volume by ASIN (Top 30)</div><div class="card">'
-            for i, (asin, brand, vol) in enumerate(vol_items):
-                pct = vol / max_vol * 100
-                color = _BAR_COLORS[i % len(_BAR_COLORS)]
-                brand_label = html_mod.escape(brand) if brand else ""
-                vol_bar_html += f'''<div class="hbar-row hbar-vol">
-                  <div class="hbar-label hbar-mono">{html_mod.escape(asin)}</div>
-                  <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:{color}"></div><span class="hbar-inline">{brand_label}</span></div>
-                </div>'''
-            # X-axis
-            vol_bar_html += '<div class="vol-xaxis">'
-            for i in range(7):
-                val = max_vol * i / 6
-                vol_bar_html += f'<span>{_fmt_vol(val)}</span>'
-            vol_bar_html += '</div></div></div>'
+        vol_bar_html = f'<div class="section"><div class="section-title">Search Volume by ASIN (Top 15) <span class="vol-filter-label" id="vol-filter-{mk}"></span></div><div class="card"><div id="vol-chart-{mk}"></div></div></div>'
 
     # Volume trend
     volume_trend_html = ""
@@ -441,6 +421,10 @@ a:hover{{text-decoration:underline;}}
 .hbar-fill{{height:100%;border-radius:4px;min-width:2px;}}
 .hbar-val{{font-size:11px;color:#64748B;font-weight:600;}}
 .hbar-inline{{font-size:11px;color:#64748B;margin-left:8px;white-space:nowrap;}}
+.clickable-bar{{cursor:pointer;border-radius:6px;padding:2px 4px;transition:background .15s;}}
+.clickable-bar:hover{{background:#EFF6FF;}}
+.clickable-bar.selected{{background:#DBEAFE;}}
+.vol-filter-label{{font-size:12px;font-weight:400;color:#2563EB;margin-left:8px;}}
 
 /* X-axis */
 .vol-xaxis{{display:flex;justify-content:space-between;margin-top:8px;padding-left:105px;font-size:10px;color:#94A3B8;}}
@@ -586,6 +570,85 @@ function clearF(){{
   Array.from(fTable.querySelector('tbody').rows).forEach(r=>r.style.display='');
   popup.classList.remove('show');
 }}
+
+// === Dynamic Volume Chart (filtered by price/brand clicks) ===
+const COLORS = ['#2563EB','#F59E0B','#16A34A','#DC2626','#7C3AED','#0891B2','#EA580C','#4F46E5','#059669','#DB2777','#2563EB','#F59E0B','#16A34A','#DC2626','#7C3AED'];
+// Price tiers are dynamically computed from rowData per market
+function computePriceTiers(mk){{
+  const prices=rowData.filter(r=>r.market===mk&&r.price).map(r=>r.price);
+  if(!prices.length)return[];
+  const mn=Math.min(...prices),mx=Math.max(...prices);
+  const step=(mx-mn)/3;
+  return[
+    {{name:'Entry',min:mn,max:mn+step}},
+    {{name:'Mid-tier',min:mn+step,max:mn+step*2}},
+    {{name:'Premium',min:mn+step*2,max:mx+1}}
+  ];
+}}
+
+function getPriceTier(price, mk){{
+  if(price===null||price===undefined)return null;
+  const tiers=computePriceTiers(mk);
+  for(const t of tiers){{if(price>=t.min&&price<t.max)return t.name;}}
+  return tiers.length?tiers[tiers.length-1].name:null;
+}}
+
+function renderVolChart(mk, filterType, filterValue){{
+  const container=document.getElementById('vol-chart-'+mk);
+  const label=document.getElementById('vol-filter-'+mk);
+  if(!container)return;
+  let items=rowData.filter(r=>r.market===mk&&r.search_volume);
+  if(filterType==='price'){{
+    items=items.filter(r=>getPriceTier(r.price,mk)===filterValue);
+    if(label)label.textContent='[ '+filterValue+' ]';
+  }}else if(filterType==='brand'){{
+    items=items.filter(r=>r.brand===filterValue);
+    if(label)label.textContent='[ '+filterValue+' ]';
+  }}else{{
+    if(label)label.textContent='';
+  }}
+  items.sort((a,b)=>(b.search_volume||0)-(a.search_volume||0));
+  items=items.slice(0,15);
+  if(!items.length){{container.innerHTML='<div style=\"color:#94A3B8;padding:20px\">No data for this filter</div>';return;}}
+  const maxV=items[0].search_volume||1;
+  let html='';
+  items.forEach((r,i)=>{{
+    const pct=(r.search_volume/maxV*100).toFixed(1);
+    const c=COLORS[i%COLORS.length];
+    const brand=r.brand||'';
+    html+=`<div class=\"hbar-row hbar-vol\"><div class=\"hbar-label hbar-mono\">${{r.asin}}</div><div class=\"hbar-track\"><div class=\"hbar-fill\" style=\"width:${{pct}}%;background:${{c}}\"></div><span class=\"hbar-inline\">${{brand}}</span></div></div>`;
+  }});
+  // X-axis
+  html+='<div class=\"vol-xaxis\">';
+  for(let i=0;i<=6;i++){{const v=maxV*i/6;html+=`<span>${{v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)}}</span>`;}}
+  html+='</div>';
+  container.innerHTML=html;
+}}
+
+// Initial render for all markets
+document.querySelectorAll('[id^=\"vol-chart-\"]').forEach(el=>{{
+  const mk=el.id.replace('vol-chart-','');
+  renderVolChart(mk,null,null);
+}});
+
+// Click handlers for price/brand bars
+document.querySelectorAll('.clickable-bar').forEach(bar=>{{
+  bar.addEventListener('click',()=>{{
+    const mk=bar.dataset.market;
+    const type=bar.dataset.filterType;
+    const val=bar.dataset.filterValue;
+    // Toggle selection
+    const wasSelected=bar.classList.contains('selected');
+    // Clear all selections in same market+type
+    document.querySelectorAll(`.clickable-bar[data-market="${{mk}}"]`).forEach(b=>b.classList.remove('selected'));
+    if(!wasSelected){{
+      bar.classList.add('selected');
+      renderVolChart(mk,type,val);
+    }}else{{
+      renderVolChart(mk,null,null);
+    }}
+  }});
+}});
 
 // Volume trend canvas
 if(HAS_VOLUME_SERIES){{
