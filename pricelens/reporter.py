@@ -231,18 +231,15 @@ def _render_panel(mk, mrows, active, has_sr, has_pr, has_sv):
         <div class="tier-row">{tier_cards}</div>
       </div>
       <div class="section">
-        <div class="section-title">\U0001f4c8 ASIN Count by Price Tier</div>
-        <div class="card tier-chart-card"><div id="tier-svg-{mk}" class="tier-svg-wrap"></div></div>
+        <div class="section-title">\U0001f4c8 Distribution</div>
+        <div class="grid-2">
+          <div class="card tier-chart-card"><div class="card-title">\U0001f4ca ASIN Count by Price Tier</div><div id="tier-svg-{mk}" class="tier-svg-wrap"></div></div>
+          {brand_html}
+        </div>
       </div>
       <div class="section">
         <div class="section-title">\U0001f3af Brand Overview</div>
         <div class="card"><div class="bubble-cloud" id="bubble-{mk}"></div></div>
-      </div>
-      <div class="section">
-        <div class="grid-2">
-          {brand_html}
-          <div></div>
-        </div>
       </div>
       {vol_html}
       <div class="section">
@@ -395,7 +392,7 @@ canvas{{width:100%!important;}}
 
 /* Tier SVG chart */
 .tier-chart-card{{padding:24px 32px;}}
-.tier-svg-wrap{{display:flex;align-items:flex-end;justify-content:center;gap:40px;height:260px;padding-bottom:40px;position:relative;}}
+.tier-svg-wrap{{display:flex;align-items:flex-end;justify-content:center;gap:40px;height:220px;padding-bottom:0;position:relative;}}
 .tier-bar-col{{display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .2s cubic-bezier(0.34,1.56,0.64,1);}}
 .tier-bar-col:hover{{transform:scale(1.03);}}
 .tier-bar-col.selected .tier-bar-rect{{outline:3px solid var(--primary-500);outline-offset:3px;}}
@@ -483,12 +480,13 @@ document.querySelectorAll('[id^="tier-svg-"]').forEach(wrap=>{{
   const counts=t.map((tier,i)=>prices.filter(p=>p>=tier.lo&&(i===2||p<tier.hi)).length);
   const maxC=Math.max(...counts)||1;
   let html='';
+  const maxH=160;
   counts.forEach((c,i)=>{{
-    const hPct=Math.max(c/maxC*100,2);
+    const barH=Math.max(Math.round(c/maxC*maxH),6);
     const lbl=t[i].name==='Entry'?'$0\u2013$'+Math.round(t[i].hi):t[i].name==='Mid-tier'?'$'+Math.round(t[i].lo)+'\u2013$'+Math.round(t[i].hi):'$'+Math.round(t[i].lo)+'+';
     html+='<div class="tier-bar-col clickable-bar" data-filter-type="price" data-filter-value="'+t[i].name+'" data-market="'+mk+'">';
     html+='<div class="tier-bar-count">'+c+'</div>';
-    html+='<div class="tier-bar-rect" style="height:'+hPct+'%;width:120px;background:linear-gradient(180deg,'+TIER_COLORS[i]+','+TIER_COLORS[i]+'88)"></div>';
+    html+='<div class="tier-bar-rect" style="height:'+barH+'px;width:100px;background:linear-gradient(180deg,'+TIER_COLORS[i]+','+TIER_COLORS[i]+'88)"></div>';
     html+='<div class="tier-bar-label">'+lbl+'</div>';
     html+='</div>';
   }});
