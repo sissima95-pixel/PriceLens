@@ -391,8 +391,8 @@ tbody tr:hover td{{background:var(--primary-50);}}
 canvas{{width:100%!important;}}
 
 /* Tier SVG chart */
-.tier-chart-card{{padding:24px 32px;}}
-.tier-svg-wrap{{display:flex;align-items:flex-end;justify-content:center;gap:40px;height:220px;padding-bottom:0;position:relative;}}
+.tier-chart-card{{padding:20px 24px;}}
+.tier-svg-wrap{{display:flex;align-items:flex-end;justify-content:center;gap:40px;padding:20px 0 0;position:relative;}}
 .tier-bar-col{{display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .2s cubic-bezier(0.34,1.56,0.64,1);}}
 .tier-bar-col:hover{{transform:scale(1.03);}}
 .tier-bar-col.selected .tier-bar-rect{{outline:3px solid var(--primary-500);outline-offset:3px;}}
