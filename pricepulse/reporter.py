@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ASIN PriceLens reporter — generates Excel and interactive HTML reports.
+"""ASIN PricePulse reporter — generates Excel and interactive HTML reports.
 
 v1.2.1 — 2026-08-11. Design system overhaul: Indigo/Violet palette, Inter font,
 refined spacing, shadows, and component styles per design spec.

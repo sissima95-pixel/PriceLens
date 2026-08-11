@@ -1,4 +1,4 @@
-# ASIN PriceLens 价格透镜
+# ASIN PricePulse 价格脉搏
 
 **批量抓取 Amazon 17 个站点的 ASIN 本地原生价格,生成可交互 HTML 洞察报告 + Excel 明细。**
 
@@ -9,10 +9,10 @@ AST 内部工具 · 与 VPN 状态无关 · 不依赖内部 API
 ## 安装
 
 ```bash
-git clone https://github.com/sissima95-pixel/PriceLens.git && cd PriceLens && pip install -e .
+git clone https://github.com/sissima95-pixel/PricePulse.git && cd PricePulse && pip install -e .
 ```
 
-安装后 `pricelens` 命令即可全局使用。Python >= 3.9。
+安装后 `pricepulse` 命令即可全局使用。Python >= 3.9。
 
 ---
 
@@ -21,19 +21,19 @@ git clone https://github.com/sissima95-pixel/PriceLens.git && cd PriceLens && pi
 ### 从文件输入(推荐)
 
 ```bash
-pricelens --markets AU --input asins.xlsx --output ./report --yes
+pricepulse --markets AU --input asins.xlsx --output ./report --yes
 ```
 
 ### 直接指定 ASIN
 
 ```bash
-pricelens --markets DE,UK,US --asins B0DCBB2YTR,B09B96TG33 --output ./report --yes
+pricepulse --markets DE,UK,US --asins B0DCBB2YTR,B09B96TG33 --output ./report --yes
 ```
 
 ### 带标题和日期范围
 
 ```bash
-pricelens --markets US --input data.xlsx --title "US Personal Fans" --subtitle "2026.5.1 – 7.31" --output ./report --yes
+pricepulse --markets US --input data.xlsx --title "US Personal Fans" --subtitle "2026.5.1 – 7.31" --output ./report --yes
 ```
 
 ---
@@ -104,7 +104,7 @@ pricelens --markets US --input data.xlsx --title "US Personal Fans" --subtitle "
 ## CLI 完整参数
 
 ```
-pricelens [OPTIONS]
+pricepulse [OPTIONS]
 
 必选:
   --markets, -m    逗号分隔的市场代码 (如 AU,US,DE)
@@ -137,7 +137,7 @@ pricelens [OPTIONS]
 ## 技术原理
 
 ```
-用户 (任意 IP/VPN) → pricelens CLI
+用户 (任意 IP/VPN) → pricepulse CLI
   ↓
 1. GET amazon.{tld}/ — 获取 session cookies
 2. POST /portal-migration/hz/glow/address-change — 注入本地邮编

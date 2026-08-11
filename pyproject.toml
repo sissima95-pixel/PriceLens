@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "asin-pricelens"
-version = "1.1.0"
-description = "ASIN PriceLens 价格透镜 — AST-internal batch Amazon ASIN price fetcher across 17 marketplaces"
+name = "asin-pricepulse"
+version = "1.3.0"
+description = "ASIN PricePulse 价格脉搏 — AST-internal batch Amazon ASIN price fetcher across 17 marketplaces"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "AST-CN LCS" }]
@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-pricelens = "pricelens.cli:main"
+pricepulse = "pricepulse.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pricelens*"]
+include = ["pricepulse*"]

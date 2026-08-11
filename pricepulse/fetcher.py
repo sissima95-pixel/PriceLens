@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ASIN PriceLens 价格透镜 — Core price fetcher.
+"""ASIN PricePulse 价格脉搏 — Core price fetcher.
 
 Technique:
   1. Warm-up GET homepage → obtain session cookies

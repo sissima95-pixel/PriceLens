@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Command-line interface for ASIN PriceLens 价格透镜.
+"""Command-line interface for ASIN PricePulse 价格脉搏.
 
 Usage:
-    pricelens --markets DE,UK,US --input asins.csv --output ./out
-    pricelens --markets DE --asins B0DCBB2YTR,B09B96TG33 --output ./out
+    pricepulse --markets DE,UK,US --input asins.csv --output ./out
+    pricepulse --markets DE --asins B0DCBB2YTR,B09B96TG33 --output ./out
 
 Any agent (Orcha, Claude Code, Kiro, Cursor) — or a human — can invoke this
 command. Input formats: CSV, TXT, or comma-separated ASIN list on CLI.
@@ -193,7 +193,7 @@ def _estimate_runtime(total_requests: int) -> str:
 def _print_pre_flight(markets: list[str], items: list, extras: list[str] = None) -> None:
     total_req = len(items) * len(markets)
     print("=" * 70, file=sys.stderr)
-    print(" 🔍 ASIN PriceLens 价格透镜 v" + __version__ + " · pre-flight check", file=sys.stderr)
+    print(" 🔍 ASIN PricePulse 价格脉搏 v" + __version__ + " · pre-flight check", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     print(f" Markets: {', '.join(markets)}", file=sys.stderr)
     print(f" ASINs:   {len(items)} (deduped)", file=sys.stderr)
@@ -217,8 +217,8 @@ def _print_pre_flight(markets: list[str], items: list, extras: list[str] = None)
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        prog="pricelens",
-        description="ASIN PriceLens 价格透镜 — Batch-fetch Amazon ASIN prices across 17 marketplaces.",
+        prog="pricepulse",
+        description="ASIN PricePulse 价格脉搏 — Batch-fetch Amazon ASIN prices across 17 marketplaces.",
     )
     ap.add_argument("--markets", "-m", required=True,
                     help="Comma-separated market codes (e.g. US,DE,UK). "
