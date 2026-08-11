@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ASIN PriceLens reporter — generates Excel and interactive HTML reports.
 
-Clean rewrite 2026-08-07. UI style matched to AU RV Dashboard reference.
+v1.2.0 — 2026-08-11. New layout: price tier cards + vertical bar chart + brand avg price chart.
 """
 from __future__ import annotations
 
@@ -115,13 +115,15 @@ def write_csv(results: list, path) -> None:
 # HTML output
 # ===========================================================================
 
-_BAR_COLORS = ["#2563EB", "#F59E0B", "#16A34A", "#DC2626", "#7C3AED",
-               "#0891B2", "#EA580C", "#4F46E5", "#059669", "#DB2777"]
+_TIER_COLORS = ["#16A34A", "#2563EB", "#DC2626"]  # green, blue, red for Entry/Mid/Premium
+_BAR_COLORS = ["#7C3AED", "#F59E0B", "#16A34A", "#DC2626", "#2563EB",
+               "#0891B2", "#EA580C", "#4F46E5", "#059669", "#DB2777",
+               "#7C3AED", "#F59E0B"]
 
 
 def write_html(results: list, path, title: str = "ASIN Price Intelligence Report",
                subtitle: str = "") -> None:
-    """Generate interactive HTML report matching professional dashboard style."""
+    """Generate interactive HTML report."""
     path = Path(path)
     if not results:
         path.write_text("<!DOCTYPE html><html><body><p>No results</p></body></html>",
@@ -168,33 +170,23 @@ def write_html(results: list, path, title: str = "ASIN Price Intelligence Report
 
 
 def _price_bands(prices: list[float]) -> list[tuple[str, int]]:
-    """Price banding based on absolute price ranges (category-meaningful tiers).
-
-    Always 3 tiers with equal-width price spans across the full range,
-    so each tier covers the same dollar amount — reflects actual category
-    price structure rather than quantile splits that over-segment the low end.
-    """
+    """Equal-width 3-tier price banding."""
     if not prices:
         return []
     sorted_p = sorted(prices)
     mn, mx = sorted_p[0], sorted_p[-1]
-    n_bands = 3
+    step = (mx - mn) / 3 if mx > mn else max(mx * 0.1, 1)
+    bounds = [mn, mn + step, mn + step * 2, mx]
     labels = ["Entry", "Mid-tier", "Premium"]
-
-    # Equal-width: divide the full price range into 3 equal spans
-    step = (mx - mn) / n_bands if mx > mn else max(mx * 0.1, 1)
-    bounds = [mn + step * i for i in range(n_bands + 1)]
-    # Ensure last bound captures max exactly
-    bounds[-1] = mx
-
     bands = []
-    for i in range(n_bands):
+    for i in range(3):
         lo, hi = bounds[i], bounds[i + 1]
-        if i == n_bands - 1:
+        if i == 2:
             count = sum(1 for p in prices if lo <= p <= hi)
         else:
             count = sum(1 for p in prices if lo <= p < hi)
-        bands.append((f"{labels[i]}\n({lo:.0f}\u2013{hi:.0f})", count))
+        bands.append((f"{labels[i]}\n({lo:.0f}\u2013{hi:.0f})" if i < 2
+                      else f"{labels[i]}\n({lo:.0f}+)", count))
     return bands
 
 
@@ -203,11 +195,7 @@ def _summarize_market(mrows: list[dict]) -> dict:
     prices = [r["price"] for r in ok_rows]
     brands = set(r.get("brand", "") for r in ok_rows if r.get("brand"))
     return {
-        "total": len(mrows),
-        "ok": len(ok_rows),
-        "unavailable": sum(1 for r in mrows if r.get("status") == "unavailable"),
-        "not_found": sum(1 for r in mrows if r.get("status") == "not_found"),
-        "error": sum(1 for r in mrows if r.get("status") == "error"),
+        "total": len(mrows), "ok": len(ok_rows),
         "min_price": min(prices) if prices else 0,
         "max_price": max(prices) if prices else 0,
         "avg_price": sum(prices) / len(prices) if prices else 0,
@@ -217,12 +205,6 @@ def _summarize_market(mrows: list[dict]) -> dict:
     }
 
 
-def _fmt_vol(v: float) -> str:
-    if v >= 1000:
-        return f"{v/1000:.1f}k"
-    return f"{v:.0f}"
-
-
 def _render_market_panel(mk: str, mrows: list[dict], active: str,
                          has_sr: bool, has_pr: bool, has_sv: bool,
                          has_vs: bool) -> str:
@@ -230,79 +212,116 @@ def _render_market_panel(mk: str, mrows: list[dict], active: str,
     cur = summary["currency"]
     display = "block" if active else "none"
 
-    # KPI row
-    kpi_html = f'''
-    <div class="kpi-row">
-      <div class="kpi green"><div class="kpi-label">Priced Successfully</div><div class="kpi-val">{summary["ok"]}/{summary["total"]}</div></div>
-      <div class="kpi"><div class="kpi-label">Min Price</div><div class="kpi-val">{cur} {summary["min_price"]:.2f}</div></div>
-      <div class="kpi"><div class="kpi-label">Max Price</div><div class="kpi-val">{cur} {summary["max_price"]:.2f}</div></div>
-      <div class="kpi"><div class="kpi-label">Median Price</div><div class="kpi-val">{cur} {summary["median_price"]:.2f}</div></div>
-      <div class="kpi amber"><div class="kpi-label">Brands Detected</div><div class="kpi-val">{summary["brands_count"]}</div></div>
-    </div>'''
-
     ok_rows = [r for r in mrows if r.get("status") == "ok" and r.get("price")]
     prices = [r["price"] for r in ok_rows]
-
-    # Price bands
     bands = _price_bands(prices)
-    band_html = ""
-    if bands:
-        max_count = max(c for _, c in bands) or 1
-        band_html = '<div class="card"><div class="card-title">Price Segment Distribution</div>'
-        for label, count in bands:
-            pct = count / max_count * 100
-            parts = label.split("\n")
-            tier_name = html_mod.escape(parts[0])
-            tier_range = html_mod.escape(parts[1]) if len(parts) > 1 else ""
-            band_html += f'''<div class="hbar-row clickable-bar" data-filter-type="price" data-filter-value="{tier_name}" data-market="{mk}">
-              <div class="hbar-label">{tier_name} <span class="hbar-sub">{tier_range}</span></div>
-              <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:#2563EB"></div></div>
-              <div class="hbar-val">{count}</div>
-            </div>'''
-        band_html += '</div>'
 
-    # Brand distribution
+    # --- Price Tier Cards (top section) ---
+    tier_cards_html = ""
+    if bands:
+        tier_labels = ["Entry", "Mid-tier", "Premium"]
+        tier_colors = _TIER_COLORS
+        total_priced = sum(c for _, c in bands)
+        for i, (label, count) in enumerate(bands):
+            parts = label.split("\n")
+            tier_name = parts[0]
+            tier_range = parts[1] if len(parts) > 1 else ""
+            pct = f"{count/total_priced*100:.1f}" if total_priced else "0"
+            # Compute avg price and avg search rank for this tier
+            tier_prices = []
+            tier_ranks = []
+            # Determine bounds for this tier
+            mn_p = min(prices) if prices else 0
+            mx_p = max(prices) if prices else 0
+            step = (mx_p - mn_p) / 3 if mx_p > mn_p else 1
+            lo = mn_p + step * i
+            hi = mn_p + step * (i + 1)
+            for r in ok_rows:
+                p = r["price"]
+                if i == 2:
+                    in_tier = p >= lo
+                else:
+                    in_tier = lo <= p < hi
+                if in_tier:
+                    tier_prices.append(p)
+                    sr = r.get("search_rank")
+                    if sr is not None:
+                        tier_ranks.append(sr)
+            avg_p = sum(tier_prices) / len(tier_prices) if tier_prices else 0
+            avg_rank = sum(tier_ranks) / len(tier_ranks) if tier_ranks else 0
+            # Representative ASIN (highest search volume in tier)
+            rep_asin = ""
+            if has_sv:
+                tier_vol = [(r.get("asin", ""), r.get("search_volume") or 0) for r in ok_rows
+                            if (r["price"] >= lo and (r["price"] < hi if i < 2 else True))]
+                tier_vol.sort(key=lambda x: -x[1])
+                rep_asin = tier_vol[0][0] if tier_vol else ""
+
+            tier_cards_html += f'''
+            <div class="tier-card clickable-bar" data-filter-type="price" data-filter-value="{tier_name}" data-market="{mk}" style="border-top:4px solid {tier_colors[i]}">
+              <div class="tier-header">{tier_name} \u00b7 ${tier_range.replace("\u2013"," \u2013 $").replace("+","+")}
+</div>
+              <div class="tier-count">{count} <span class="tier-pct">({pct}%)</span></div>
+              <div class="tier-meta"><span class="tier-meta-label">Avg Price</span><span class="tier-meta-val">${avg_p:.2f}</span></div>
+              <div class="tier-meta"><span class="tier-meta-label">Avg Search Rank</span><span class="tier-meta-val">#{avg_rank:.0f}</span></div>
+              {f'<div class="tier-meta"><span class="tier-meta-label">Top ASIN</span><span class="tier-meta-val tier-asin">{rep_asin}</span></div>' if rep_asin else ''}
+            </div>'''
+
+    # --- Brand bubble cloud ---
     brand_counts: dict[str, int] = {}
     for r in ok_rows:
         b = r.get("brand", "").strip() or "Unknown"
         brand_counts[b] = brand_counts.get(b, 0) + 1
-    top_brands = sorted(brand_counts.items(), key=lambda x: -x[1])[:10]
-    brand_html = ""
-    if top_brands:
-        max_bc = top_brands[0][1] or 1
-        brand_html = '<div class="card"><div class="card-title">Top Brands by ASIN Count</div>'
-        for i, (bname, bcount) in enumerate(top_brands):
-            pct = bcount / max_bc * 100
-            color = _BAR_COLORS[i % len(_BAR_COLORS)]
-            brand_html += f'''<div class="hbar-row clickable-bar" data-filter-type="brand" data-filter-value="{html_mod.escape(bname)}" data-market="{mk}">
-              <div class="hbar-label">{html_mod.escape(bname)}</div>
-              <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:{color}"></div></div>
-              <div class="hbar-val">{bcount}</div>
-            </div>'''
-        brand_html += '</div>'
+    top_brands_all = sorted(brand_counts.items(), key=lambda x: -x[1])
+    # Bubble cloud (all brands with count)
+    bubble_html = '<div class="section"><div class="section-title">Brand Distribution</div><div class="card"><div class="bubble-cloud">'
+    for i, (bname, bcount) in enumerate(top_brands_all[:20]):
+        color = _BAR_COLORS[i % len(_BAR_COLORS)]
+        bubble_html += f'<span class="bubble clickable-bar" data-filter-type="brand" data-filter-value="{html_mod.escape(bname)}" data-market="{mk}" style="background:{color}">{html_mod.escape(bname)} <b>{bcount}</b></span>'
+    bubble_html += '</div></div></div>'
 
-    # Search Volume by ASIN — JS-driven dynamic chart (filtered by price/brand clicks)
+    # --- Brand avg price chart (horizontal bar) ---
+    brand_avg: list[tuple[str, float]] = []
+    for bname, _ in top_brands_all[:12]:
+        bp = [r["price"] for r in ok_rows if r.get("brand", "").strip() == bname]
+        if bp:
+            brand_avg.append((bname, sum(bp) / len(bp)))
+    brand_avg.sort(key=lambda x: -x[1])
+    brand_chart_html = ""
+    if brand_avg:
+        max_avg = brand_avg[0][1] or 1
+        brand_chart_html = '<div class="card"><div class="card-title">Brand Avg Price \u00b7 TOP 12</div>'
+        for i, (bname, avg) in enumerate(brand_avg):
+            pct = avg / max_avg * 100
+            color = _BAR_COLORS[i % len(_BAR_COLORS)]
+            brand_chart_html += f'''<div class="hbar-row clickable-bar" data-filter-type="brand" data-filter-value="{html_mod.escape(bname)}" data-market="{mk}">
+              <div class="hbar-label">{html_mod.escape(bname)}</div>
+              <div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;background:{color}"></div><span class="hbar-inline">${avg:.1f}</span></div>
+            </div>'''
+        brand_chart_html += '</div>'
+
+    # --- Search Volume chart (JS-driven) ---
     vol_bar_html = ""
     if has_sv:
         vol_bar_html = f'<div class="section"><div class="section-title">Search Volume by ASIN (Top 15) <span class="vol-filter-label" id="vol-filter-{mk}"></span></div><div class="card"><div id="vol-chart-{mk}"></div></div></div>'
 
-    # Volume trend
-    volume_trend_html = ""
-    if has_vs:
-        volume_trend_html = f'<div class="section"><div class="section-title">Search Volume Trend</div><div class="card"><canvas id="vol-canvas-{mk}" height="180"></canvas></div></div>'
-
-    # Detail table
+    # --- Detail table ---
     table_html = _render_detail_table(mk, mrows, has_sr, has_pr)
 
     return f'''
     <div class="tab-content{" active" if active else ""}" data-market="{mk}" style="display:{display}">
       <div class="section">
-        <div class="section-title">Market Overview</div>
-        {kpi_html}
-        <div class="grid-2">{band_html}{brand_html}</div>
+        <div class="section-title">\U0001f3c6 Price Tier Overview</div>
+        <div class="tier-row">{tier_cards_html}</div>
       </div>
+      <div class="section">
+        <div class="grid-2">
+          <div class="card"><div class="card-title">ASIN Count by Price Tier</div><canvas id="tier-bar-{mk}" height="220"></canvas></div>
+          {brand_chart_html}
+        </div>
+      </div>
+      {bubble_html}
       {vol_bar_html}
-      {volume_trend_html}
       <div class="section">
         <div class="section-title">ASIN Detail</div>
         {table_html}
@@ -327,12 +346,11 @@ def _render_detail_table(mk: str, mrows: list[dict],
         price_str = f'{r.get("currency","")} {r["price"]:.2f}' if r.get("price") else "-"
         status = r.get("status", "unknown")
         title_short = (r.get("title", "") or "")[:80]
-
         cells = [
             f'<a href="{html_mod.escape(r.get("url",""))}" target="_blank">{html_mod.escape(r.get("asin",""))}</a>',
             html_mod.escape(r.get("brand", "") or ""),
             f'<span class="dim">{html_mod.escape(title_short)}</span>',
-            f'<td class="num">{price_str}</td>',
+            price_str,
             f'<span class="st-{status}">{status}</span>',
         ]
         if has_sr:
@@ -341,15 +359,8 @@ def _render_detail_table(mk: str, mrows: list[dict],
         if has_pr:
             pv = r.get("purchase_rank")
             cells.append(f"{pv:.0f}" if pv is not None else "-")
-
-        # Fix: price cell already wrapped in td
-        td_parts = []
-        for j, c in enumerate(cells):
-            if c.startswith("<td"):
-                td_parts.append(c)
-            else:
-                td_parts.append(f"<td>{c}</td>")
-        tbody_rows += f'<tr>{"".join(td_parts)}</tr>\n'
+        td_html = "".join(f"<td>{c}</td>" for c in cells)
+        tbody_rows += f'<tr>{td_html}</tr>\n'
 
     return f'''
       <div class="table-scroll">
@@ -377,28 +388,12 @@ def _render_html(title: str, subtitle: str, tabs_html: str, panels_html: str,
 body{{font-family:'Segoe UI',system-ui,sans-serif;background:#F8FAFC;color:#1E293B;font-size:13px;}}
 a{{color:#2563EB;text-decoration:none;}}
 a:hover{{text-decoration:underline;}}
-
-/* Header */
 .header{{background:linear-gradient(135deg,#1E3A5F 0%,#2563EB 100%);color:#fff;padding:28px 40px;text-align:center;}}
 .header h1{{font-size:22px;font-weight:700;letter-spacing:.3px;}}
 .header .sub{{font-size:13px;opacity:.85;margin-top:4px;}}
-
-/* Container */
 .container{{max-width:1400px;margin:0 auto;padding:24px 32px;}}
-
-/* Sections */
-.section{{margin-bottom:32px;}}
+.section{{margin-bottom:28px;}}
 .section-title{{font-size:15px;font-weight:700;color:#1E3A5F;border-left:4px solid #2563EB;padding-left:10px;margin-bottom:16px;}}
-
-/* KPI */
-.kpi-row{{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;}}
-.kpi{{background:#fff;border-radius:10px;padding:16px 20px;min-width:150px;flex:1;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid #2563EB;}}
-.kpi.green{{border-top-color:#16A34A;}}
-.kpi.amber{{border-top-color:#D97706;}}
-.kpi-label{{font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}}
-.kpi-val{{font-size:18px;font-weight:700;color:#1E293B;}}
-
-/* Tabs */
 .tabs{{display:flex;gap:4px;margin-bottom:0;border-bottom:2px solid #E2E8F0;}}
 .tab{{padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;color:#64748B;border:1px solid transparent;border-bottom:none;position:relative;bottom:-2px;transition:all .15s;}}
 .tab.active{{background:#fff;color:#2563EB;border-color:#E2E8F0;border-bottom-color:#fff;}}
@@ -406,48 +401,59 @@ a:hover{{text-decoration:underline;}}
 .tab-content{{display:none;}}
 .tab-content.active{{display:block;padding-top:16px;}}
 
-/* Cards & Grid */
+/* Tier Cards */
+.tier-row{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:20px;}}
+.tier-card{{background:#fff;border-radius:12px;padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.07);cursor:pointer;transition:transform .15s,box-shadow .15s;}}
+.tier-card:hover{{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.12);}}
+.tier-card.selected{{box-shadow:0 0 0 2px #2563EB,0 4px 12px rgba(37,99,235,.2);}}
+.tier-header{{font-size:12px;color:#64748B;margin-bottom:8px;}}
+.tier-count{{font-size:26px;font-weight:800;color:#1E293B;}}
+.tier-pct{{font-size:14px;font-weight:400;color:#94A3B8;}}
+.tier-meta{{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;}}
+.tier-meta-label{{color:#64748B;}}
+.tier-meta-val{{color:#1E293B;font-weight:600;}}
+.tier-asin{{font-family:'SF Mono','Consolas',monospace;font-size:11px;}}
+
+/* Grid */
 .grid-2{{display:grid;grid-template-columns:1fr 1fr;gap:20px;}}
-.card{{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.07);}}
+.card{{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.07);}}
 .card-title{{font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;}}
 
-/* Horizontal bars */
-.hbar-row{{display:grid;grid-template-columns:140px 1fr 36px;align-items:center;gap:10px;margin-bottom:8px;}}
-.hbar-row.hbar-vol{{grid-template-columns:95px 1fr;margin-bottom:10px;}}
-.hbar-label{{font-size:12px;color:#334155;text-align:right;white-space:nowrap;}}
-.hbar-mono{{font-family:'SF Mono','Consolas','Courier New',monospace;font-size:11px;color:#475569;}}
-.hbar-sub{{color:#94A3B8;font-size:10px;margin-left:4px;}}
-.hbar-track{{background:#F1F5F9;border-radius:4px;height:22px;display:flex;align-items:center;overflow:visible;position:relative;}}
-.hbar-fill{{height:100%;border-radius:4px;min-width:2px;}}
-.hbar-val{{font-size:11px;color:#64748B;font-weight:600;}}
-.hbar-inline{{font-size:11px;color:#64748B;margin-left:8px;white-space:nowrap;}}
-.clickable-bar{{cursor:pointer;border-radius:6px;padding:2px 4px;transition:background .15s;}}
-.clickable-bar:hover{{background:#EFF6FF;}}
-.clickable-bar.selected{{background:#DBEAFE;}}
-.vol-filter-label{{font-size:12px;font-weight:400;color:#2563EB;margin-left:8px;}}
+/* Bubble cloud */
+.bubble-cloud{{display:flex;flex-wrap:wrap;gap:8px;}}
+.bubble{{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:500;cursor:pointer;transition:transform .15s,opacity .15s;}}
+.bubble:hover{{transform:scale(1.05);}}
+.bubble.selected{{outline:3px solid #1E293B;outline-offset:2px;}}
+.bubble b{{font-weight:700;opacity:.9;}}
 
-/* X-axis */
+/* Horizontal bars */
+.hbar-row{{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;border-radius:6px;padding:3px 6px;transition:background .15s;}}
+.hbar-row:hover{{background:#F1F5F9;}}
+.hbar-row.selected{{background:#EFF6FF;}}
+.hbar-label{{font-size:12px;color:#334155;text-align:right;white-space:nowrap;}}
+.hbar-track{{background:#F1F5F9;border-radius:4px;height:22px;display:flex;align-items:center;overflow:visible;}}
+.hbar-fill{{height:100%;border-radius:4px;min-width:2px;}}
+.hbar-inline{{font-size:11px;color:#475569;font-weight:600;margin-left:8px;white-space:nowrap;}}
+
+/* Volume chart */
+.hbar-row.hbar-vol{{grid-template-columns:95px 1fr;margin-bottom:10px;}}
+.hbar-mono{{font-family:'SF Mono','Consolas','Courier New',monospace;font-size:11px;color:#475569;}}
 .vol-xaxis{{display:flex;justify-content:space-between;margin-top:8px;padding-left:105px;font-size:10px;color:#94A3B8;}}
+.vol-filter-label{{font-size:12px;font-weight:500;color:#2563EB;margin-left:8px;}}
 
 /* Table */
 .table-scroll{{max-height:2200px;overflow-y:auto;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);background:#fff;}}
 table{{width:100%;border-collapse:collapse;font-size:12px;}}
 th{{background:#F1F5F9;padding:8px 10px;text-align:left;font-weight:600;color:#475569;font-size:11px;border-bottom:2px solid #E2E8F0;position:sticky;top:0;z-index:10;white-space:nowrap;}}
 td{{padding:7px 10px;border-bottom:1px solid #F1F5F9;vertical-align:middle;}}
-td.num{{text-align:right;font-variant-numeric:tabular-nums;color:#334155;}}
 tr:hover td{{background:#F8FAFC;}}
 .dim{{color:#64748B;font-size:11px;}}
-
-/* Sort / filter icons */
 .th-sort,.th-filter{{color:#CBD5E1;cursor:pointer;font-size:11px;margin-left:2px;transition:color .15s;}}
 .th-sort:hover,.th-filter:hover{{color:#2563EB;}}
 .th-sort.active{{color:#2563EB;}}
-
-/* Status */
 .st-ok{{color:#16A34A;font-weight:600;}}
 .st-unavailable{{color:#D97706;}}
-.st-not_found{{color:#DC2626;}}
-.st-error{{color:#DC2626;}}
+.st-not_found,.st-error{{color:#DC2626;}}
 
 /* Filter popup */
 .filter-popup{{display:none;position:absolute;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px;z-index:1000;min-width:210px;max-height:340px;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,.12);}}
@@ -463,7 +469,6 @@ tr:hover td{{background:#F8FAFC;}}
 .fp-clear{{background:#F1F5F9;color:#475569;}}
 .fp-clear:hover{{background:#E2E8F0;}}
 .fp-selectall{{font-weight:700;padding-bottom:4px;border-bottom:1px solid #F1F5F9;margin-bottom:4px;}}
-
 canvas{{width:100%!important;}}
 </style>
 </head>
@@ -479,9 +484,24 @@ canvas{{width:100%!important;}}
 <div class="filter-popup" id="filterPopup"></div>
 
 <script>
-const rowData = {row_json};
-const volumeSeries = {vol_json};
-const HAS_VOLUME_SERIES = {"true" if has_vs else "false"};
+const rowData={row_json};
+const volumeSeries={vol_json};
+const COLORS=['#7C3AED','#F59E0B','#16A34A','#DC2626','#2563EB','#0891B2','#EA580C','#4F46E5','#059669','#DB2777','#7C3AED','#F59E0B','#16A34A','#DC2626','#2563EB'];
+const TIER_COLORS=['#16A34A','#2563EB','#DC2626'];
+
+// Compute price tiers per market
+function computeTierBounds(mk){{
+  const prices=rowData.filter(r=>r.market===mk&&r.price).map(r=>r.price);
+  if(!prices.length)return[];
+  const mn=Math.min(...prices),mx=Math.max(...prices),step=(mx-mn)/3;
+  return[{{name:'Entry',lo:mn,hi:mn+step}},{{name:'Mid-tier',lo:mn+step,hi:mn+step*2}},{{name:'Premium',lo:mn+step*2,hi:mx+1}}];
+}}
+function getPriceTier(price,mk){{
+  if(!price)return null;
+  const tiers=computeTierBounds(mk);
+  for(let i=0;i<tiers.length;i++){{if(price>=tiers[i].lo&&(i===2||price<tiers[i].hi))return tiers[i].name;}}
+  return tiers.length?tiers[tiers.length-1].name:null;
+}}
 
 // Tabs
 document.querySelectorAll('.tab').forEach(t=>{{
@@ -489,13 +509,100 @@ document.querySelectorAll('.tab').forEach(t=>{{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(x=>{{x.classList.remove('active');x.style.display='none';}});
     t.classList.add('active');
-    const mk=t.dataset.market;
-    const panel=document.querySelector(`.tab-content[data-market="${{mk}}"]`);
+    const panel=document.querySelector(`.tab-content[data-market="${{t.dataset.market}}"]`);
     if(panel){{panel.classList.add('active');panel.style.display='block';}}
   }});
 }});
 
-// Sort
+// === Volume chart (dynamic) ===
+function renderVolChart(mk,filterType,filterValue){{
+  const container=document.getElementById('vol-chart-'+mk);
+  const label=document.getElementById('vol-filter-'+mk);
+  if(!container)return;
+  let items=rowData.filter(r=>r.market===mk&&r.search_volume);
+  if(filterType==='price'){{
+    items=items.filter(r=>getPriceTier(r.price,mk)===filterValue);
+    if(label)label.textContent='[ '+filterValue+' ]';
+  }}else if(filterType==='brand'){{
+    items=items.filter(r=>r.brand===filterValue);
+    if(label)label.textContent='[ '+filterValue+' ]';
+  }}else{{
+    if(label)label.textContent='';
+  }}
+  items.sort((a,b)=>(b.search_volume||0)-(a.search_volume||0));
+  items=items.slice(0,15);
+  if(!items.length){{container.innerHTML='<div style="color:#94A3B8;padding:20px;font-size:12px">No data for this filter</div>';return;}}
+  const maxV=items[0].search_volume||1;
+  let html='';
+  items.forEach((r,i)=>{{
+    const pct=(r.search_volume/maxV*100).toFixed(1);
+    const c=COLORS[i%COLORS.length];
+    html+=`<div class="hbar-row hbar-vol"><div class="hbar-label hbar-mono">${{r.asin}}</div><div class="hbar-track"><div class="hbar-fill" style="width:${{pct}}%;background:${{c}}"></div><span class="hbar-inline">${{r.brand||''}}</span></div></div>`;
+  }});
+  html+='<div class="vol-xaxis">';
+  for(let i=0;i<=6;i++){{const v=maxV*i/6;html+=`<span>${{v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)}}</span>`;}}
+  html+='</div>';
+  container.innerHTML=html;
+}}
+// Init volume charts
+document.querySelectorAll('[id^="vol-chart-"]').forEach(el=>{{
+  renderVolChart(el.id.replace('vol-chart-',''),null,null);
+}});
+
+// === Tier bar chart (canvas) ===
+document.querySelectorAll('[id^="tier-bar-"]').forEach(canvas=>{{
+  const mk=canvas.id.replace('tier-bar-','');
+  const tiers=computeTierBounds(mk);
+  const prices=rowData.filter(r=>r.market===mk&&r.price).map(r=>r.price);
+  const counts=tiers.map(t=>prices.filter(p=>p>=t.lo&&(t.name==='Premium'||p<t.hi)).length);
+  const maxC=Math.max(...counts)||1;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.offsetWidth||400,H=220;
+  canvas.width=W;canvas.height=H;
+  const pad=40,barW=(W-2*pad)/(counts.length*2+1);
+  // Y-axis
+  ctx.strokeStyle='#E2E8F0';ctx.lineWidth=0.5;
+  for(let i=0;i<=4;i++){{
+    const y=pad+(H-pad-30)*(1-i/4);
+    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-10,y);ctx.stroke();
+    ctx.fillStyle='#94A3B8';ctx.font='10px Segoe UI';
+    ctx.fillText(Math.round(maxC*i/4),5,y+3);
+  }}
+  // Bars
+  counts.forEach((c,i)=>{{
+    const x=pad+barW*(i*2+1);
+    const barH=(H-pad-30)*c/maxC;
+    const y=H-30-barH;
+    ctx.fillStyle=TIER_COLORS[i];
+    ctx.beginPath();ctx.roundRect(x,y,barW,barH,[4,4,0,0]);ctx.fill();
+    // Count label
+    ctx.fillStyle='#1E293B';ctx.font='bold 13px Segoe UI';ctx.textAlign='center';
+    ctx.fillText(c,x+barW/2,y-6);
+    // X label
+    ctx.fillStyle='#475569';ctx.font='11px Segoe UI';
+    const lbl=tiers[i].name==='Entry'?'$0\u2013$'+Math.round(tiers[i].hi):tiers[i].name==='Mid-tier'?'$'+Math.round(tiers[i].lo)+'\u2013$'+Math.round(tiers[i].hi):'$'+Math.round(tiers[i].lo)+'+';
+    ctx.fillText(lbl,x+barW/2,H-10);
+    ctx.textAlign='left';
+  }});
+}});
+
+// === Click interaction (price/brand -> filter volume) ===
+document.querySelectorAll('.clickable-bar').forEach(bar=>{{
+  bar.addEventListener('click',()=>{{
+    const mk=bar.dataset.market,type=bar.dataset.filterType,val=bar.dataset.filterValue;
+    const wasSelected=bar.classList.contains('selected');
+    // Clear all selections in same market
+    document.querySelectorAll(`.clickable-bar[data-market="${{mk}}"]`).forEach(b=>b.classList.remove('selected'));
+    if(!wasSelected){{
+      bar.classList.add('selected');
+      renderVolChart(mk,type,val);
+    }}else{{
+      renderVolChart(mk,null,null);
+    }}
+  }});
+}});
+
+// === Table sort ===
 document.querySelectorAll('.th-sort').forEach(el=>{{
   el.addEventListener('click',e=>{{
     e.stopPropagation();
@@ -516,7 +623,7 @@ document.querySelectorAll('.th-sort').forEach(el=>{{
   }});
 }});
 
-// Filter
+// === Table filter ===
 const popup=document.getElementById('filterPopup');
 let fCol=null,fTable=null;
 document.querySelectorAll('.th-filter').forEach(el=>{{
@@ -529,14 +636,10 @@ document.querySelectorAll('.th-filter').forEach(el=>{{
     rows.forEach(r=>{{const v=r.cells[col]?.textContent.trim()||'';vals.add(v);if(v&&v!=='-'&&isNaN(parseFloat(v.replace(/[^\\d.\\-]/g,''))))isNum=false;}});
     let h='';
     if(isNum&&vals.size>5){{
-      h=`<div class="fp-hint">Numeric range</div>
-        <label>Min: <input type="number" id="fMin" step="any"></label>
-        <label style="margin-top:4px">Max: <input type="number" id="fMax" step="any"></label>
-        <div class="fp-actions"><button class="fp-btn fp-apply" onclick="applyNum()">Apply</button><button class="fp-btn fp-clear" onclick="clearF()">Clear</button></div>`;
+      h=`<div class="fp-hint">Numeric range</div><label>Min: <input type="number" id="fMin" step="any"></label><label style="margin-top:4px">Max: <input type="number" id="fMax" step="any"></label><div class="fp-actions"><button class="fp-btn fp-apply" onclick="applyNum()">Apply</button><button class="fp-btn fp-clear" onclick="clearF()">Clear</button></div>`;
     }}else{{
       const sorted=Array.from(vals).sort();
-      h=`<div class="fp-hint">Select values</div>`;
-      h+=`<label class="fp-selectall"><input type="checkbox" id="fpSelectAll" checked onchange="toggleAll(this)"> <strong>Select All</strong></label>`;
+      h=`<div class="fp-hint">Select values</div><label class="fp-selectall"><input type="checkbox" id="fpSelectAll" checked onchange="toggleAll(this)"> <strong>Select All</strong></label>`;
       sorted.forEach(v=>{{h+=`<label><input type="checkbox" class="fp-item-cb" value="${{v.replace(/"/g,'&quot;')}}" checked> ${{v||'(empty)'}}</label>`;}});
       h+=`<div class="fp-actions"><button class="fp-btn fp-apply" onclick="applyTxt()">Apply</button><button class="fp-btn fp-clear" onclick="clearF()">Clear</button></div>`;
     }}
@@ -548,7 +651,6 @@ document.querySelectorAll('.th-filter').forEach(el=>{{
   }});
 }});
 document.addEventListener('click',e=>{{if(!popup.contains(e.target)&&!e.target.classList.contains('th-filter'))popup.classList.remove('show');}});
-
 function toggleAll(el){{popup.querySelectorAll('.fp-item-cb').forEach(cb=>cb.checked=el.checked);}}
 function applyNum(){{
   const mn=parseFloat(document.getElementById('fMin').value),mx=parseFloat(document.getElementById('fMax').value);
@@ -566,126 +668,7 @@ function applyTxt(){{
   }});
   popup.classList.remove('show');
 }}
-function clearF(){{
-  Array.from(fTable.querySelector('tbody').rows).forEach(r=>r.style.display='');
-  popup.classList.remove('show');
-}}
-
-// === Dynamic Volume Chart (filtered by price/brand clicks) ===
-const COLORS = ['#2563EB','#F59E0B','#16A34A','#DC2626','#7C3AED','#0891B2','#EA580C','#4F46E5','#059669','#DB2777','#2563EB','#F59E0B','#16A34A','#DC2626','#7C3AED'];
-// Price tiers are dynamically computed from rowData per market
-function computePriceTiers(mk){{
-  const prices=rowData.filter(r=>r.market===mk&&r.price).map(r=>r.price);
-  if(!prices.length)return[];
-  const mn=Math.min(...prices),mx=Math.max(...prices);
-  const step=(mx-mn)/3;
-  return[
-    {{name:'Entry',min:mn,max:mn+step}},
-    {{name:'Mid-tier',min:mn+step,max:mn+step*2}},
-    {{name:'Premium',min:mn+step*2,max:mx+1}}
-  ];
-}}
-
-function getPriceTier(price, mk){{
-  if(price===null||price===undefined)return null;
-  const tiers=computePriceTiers(mk);
-  for(const t of tiers){{if(price>=t.min&&price<t.max)return t.name;}}
-  return tiers.length?tiers[tiers.length-1].name:null;
-}}
-
-function renderVolChart(mk, filterType, filterValue){{
-  const container=document.getElementById('vol-chart-'+mk);
-  const label=document.getElementById('vol-filter-'+mk);
-  if(!container)return;
-  let items=rowData.filter(r=>r.market===mk&&r.search_volume);
-  if(filterType==='price'){{
-    items=items.filter(r=>getPriceTier(r.price,mk)===filterValue);
-    if(label)label.textContent='[ '+filterValue+' ]';
-  }}else if(filterType==='brand'){{
-    items=items.filter(r=>r.brand===filterValue);
-    if(label)label.textContent='[ '+filterValue+' ]';
-  }}else{{
-    if(label)label.textContent='';
-  }}
-  items.sort((a,b)=>(b.search_volume||0)-(a.search_volume||0));
-  items=items.slice(0,15);
-  if(!items.length){{container.innerHTML='<div style=\"color:#94A3B8;padding:20px\">No data for this filter</div>';return;}}
-  const maxV=items[0].search_volume||1;
-  let html='';
-  items.forEach((r,i)=>{{
-    const pct=(r.search_volume/maxV*100).toFixed(1);
-    const c=COLORS[i%COLORS.length];
-    const brand=r.brand||'';
-    html+=`<div class=\"hbar-row hbar-vol\"><div class=\"hbar-label hbar-mono\">${{r.asin}}</div><div class=\"hbar-track\"><div class=\"hbar-fill\" style=\"width:${{pct}}%;background:${{c}}\"></div><span class=\"hbar-inline\">${{brand}}</span></div></div>`;
-  }});
-  // X-axis
-  html+='<div class=\"vol-xaxis\">';
-  for(let i=0;i<=6;i++){{const v=maxV*i/6;html+=`<span>${{v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)}}</span>`;}}
-  html+='</div>';
-  container.innerHTML=html;
-}}
-
-// Initial render for all markets
-document.querySelectorAll('[id^=\"vol-chart-\"]').forEach(el=>{{
-  const mk=el.id.replace('vol-chart-','');
-  renderVolChart(mk,null,null);
-}});
-
-// Click handlers for price/brand bars
-document.querySelectorAll('.clickable-bar').forEach(bar=>{{
-  bar.addEventListener('click',()=>{{
-    const mk=bar.dataset.market;
-    const type=bar.dataset.filterType;
-    const val=bar.dataset.filterValue;
-    // Toggle selection
-    const wasSelected=bar.classList.contains('selected');
-    // Clear all selections in same market+type
-    document.querySelectorAll(`.clickable-bar[data-market="${{mk}}"]`).forEach(b=>b.classList.remove('selected'));
-    if(!wasSelected){{
-      bar.classList.add('selected');
-      renderVolChart(mk,type,val);
-    }}else{{
-      renderVolChart(mk,null,null);
-    }}
-  }});
-}});
-
-// Volume trend canvas
-if(HAS_VOLUME_SERIES){{
-  document.querySelectorAll('[id^="vol-canvas-"]').forEach(canvas=>{{
-    const mk=canvas.id.replace('vol-canvas-','');
-    const pr=rowData.filter(r=>r.market===mk);
-    const dm={{}};
-    pr.forEach(r=>{{const vs=volumeSeries[r.asin];if(vs)Object.entries(vs).forEach(([d,v])=>{{dm[d]=(dm[d]||0)+v;}});}});
-    const dates=Object.keys(dm).sort();
-    if(dates.length<2)return;
-    const vals=dates.map(d=>dm[d]),maxV=Math.max(...vals)||1;
-    const ctx=canvas.getContext('2d'),W=canvas.offsetWidth||600,H=170;
-    canvas.width=W;canvas.height=H;const pad=44;
-    ctx.strokeStyle='#E2E8F0';ctx.lineWidth=0.5;
-    for(let i=0;i<=4;i++){{
-      const y=pad+(H-2*pad)*(1-i/4);
-      ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-10,y);ctx.stroke();
-      ctx.fillStyle='#94A3B8';ctx.font='10px Segoe UI,sans-serif';
-      ctx.fillText(Math.round(maxV*i/4).toLocaleString(),2,y+3);
-    }}
-    ctx.strokeStyle='#2563EB';ctx.lineWidth=2.5;ctx.beginPath();
-    dates.forEach((d,i)=>{{
-      const x=pad+(W-pad-10)*i/(dates.length-1),y=pad+(H-2*pad)*(1-vals[i]/maxV);
-      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    }});
-    ctx.stroke();
-    // Dots
-    ctx.fillStyle='#2563EB';
-    dates.forEach((d,i)=>{{
-      const x=pad+(W-pad-10)*i/(dates.length-1),y=pad+(H-2*pad)*(1-vals[i]/maxV);
-      ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
-    }});
-    ctx.fillStyle='#64748B';ctx.font='10px Segoe UI,sans-serif';
-    const step=Math.max(1,Math.floor(dates.length/6));
-    dates.forEach((d,i)=>{{if(i%step===0||i===dates.length-1){{const x=pad+(W-pad-10)*i/(dates.length-1);ctx.fillText(d,x-15,H-4);}}}});
-  }});
-}}
+function clearF(){{Array.from(fTable.querySelector('tbody').rows).forEach(r=>r.style.display='');popup.classList.remove('show');}}
 </script>
 </body>
 </html>'''
