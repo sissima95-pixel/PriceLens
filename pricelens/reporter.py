@@ -231,10 +231,17 @@ def _render_panel(mk, mrows, active, has_sr, has_pr, has_sv):
         <div class="tier-row">{tier_cards}</div>
       </div>
       <div class="section">
-        <div class="section-title">\U0001f4c8 Distribution</div>
+        <div class="section-title">\U0001f4c8 ASIN Count by Price Tier</div>
+        <div class="card tier-chart-card"><div id="tier-svg-{mk}" class="tier-svg-wrap"></div></div>
+      </div>
+      <div class="section">
+        <div class="section-title">\U0001f3af Brand Overview</div>
+        <div class="card"><div class="bubble-cloud" id="bubble-{mk}"></div></div>
+      </div>
+      <div class="section">
         <div class="grid-2">
-          <div class="card"><div class="card-title">\U0001f4ca ASIN Count by Price Tier</div><canvas id="tier-bar-{mk}" height="220"></canvas></div>
           {brand_html}
+          <div></div>
         </div>
       </div>
       {vol_html}
@@ -385,7 +392,25 @@ tbody tr:hover td{{background:var(--primary-50);}}
 .fp-clear:hover{{background:var(--neutral-200);}}
 .fp-selectall{{font-weight:700;padding-bottom:4px;border-bottom:1px solid var(--neutral-100);margin-bottom:4px;}}
 canvas{{width:100%!important;}}
-@media(max-width:900px){{.grid-2{{grid-template-columns:1fr;}}}}
+
+/* Tier SVG chart */
+.tier-chart-card{{padding:24px 32px;}}
+.tier-svg-wrap{{display:flex;align-items:flex-end;justify-content:center;gap:40px;height:260px;padding-bottom:40px;position:relative;}}
+.tier-bar-col{{display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .2s cubic-bezier(0.34,1.56,0.64,1);}}
+.tier-bar-col:hover{{transform:scale(1.03);}}
+.tier-bar-col.selected .tier-bar-rect{{outline:3px solid var(--primary-500);outline-offset:3px;}}
+.tier-bar-count{{font-size:18px;font-weight:800;color:var(--neutral-900);margin-bottom:8px;}}
+.tier-bar-rect{{border-radius:8px 8px 0 0;min-width:100px;transition:height .5s ease;}}
+.tier-bar-label{{margin-top:12px;font-size:12px;font-weight:600;color:var(--neutral-600);}}
+
+/* Bubble cloud */
+.bubble-cloud{{display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;}}
+.bubble{{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:9999px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 2px 8px rgba(0,0,0,0.12);}}
+.bubble:hover{{transform:scale(1.08);box-shadow:0 4px 16px rgba(0,0,0,0.2);}}
+.bubble.selected{{outline:3px solid var(--neutral-900);outline-offset:2px;transform:scale(1.08);}}
+.bubble b{{font-weight:800;opacity:.9;background:rgba(255,255,255,0.25);padding:1px 6px;border-radius:8px;font-size:11px;}}
+
+@media(max-width:900px){{.grid-2{{grid-template-columns:1fr;}} .tier-svg-wrap{{gap:20px;}}}}
 </style>
 </head>
 <body>
@@ -450,33 +475,38 @@ function renderVolChart(mk,fType,fVal){{
 }}
 document.querySelectorAll('[id^="vol-chart-"]').forEach(el=>renderVolChart(el.id.replace('vol-chart-',''),null,null));
 
-// Tier bar chart
-document.querySelectorAll('[id^="tier-bar-"]').forEach(canvas=>{{
-  const mk=canvas.id.replace('tier-bar-','');
+// Tier bar chart (HTML-based, crisp)
+document.querySelectorAll('[id^="tier-svg-"]').forEach(wrap=>{{
+  const mk=wrap.id.replace('tier-svg-','');
   const t=computeTierBounds(mk);
   const prices=rowData.filter(r=>r.market===mk&&r.price).map(r=>r.price);
   const counts=t.map((tier,i)=>prices.filter(p=>p>=tier.lo&&(i===2||p<tier.hi)).length);
   const maxC=Math.max(...counts)||1;
-  const ctx=canvas.getContext('2d'),W=canvas.offsetWidth||400,H=220;
-  canvas.width=W;canvas.height=H;
-  const pad=44,gap=20,barW=(W-2*pad-gap*(counts.length-1))/counts.length;
-  ctx.strokeStyle='#e5e5e5';ctx.lineWidth=0.5;
-  for(let i=0;i<=4;i++){{const y=pad+(H-pad-36)*(1-i/4);ctx.beginPath();ctx.moveTo(pad-5,y);ctx.lineTo(W-10,y);ctx.stroke();ctx.fillStyle='#a3a3a3';ctx.font='10px Inter,sans-serif';ctx.fillText(Math.round(maxC*i/4),5,y+3);}}
+  let html='';
   counts.forEach((c,i)=>{{
-    const x=pad+(barW+gap)*i;
-    const barH=(H-pad-36)*c/maxC;
-    const y=H-36-barH;
-    const grd=ctx.createLinearGradient(x,y,x,y+barH);
-    grd.addColorStop(0,TIER_COLORS[i]);grd.addColorStop(1,TIER_COLORS[i]+'99');
-    ctx.fillStyle=grd;
-    ctx.beginPath();ctx.roundRect(x,y,barW,barH,[6,6,0,0]);ctx.fill();
-    ctx.fillStyle='#262626';ctx.font='bold 14px Inter';ctx.textAlign='center';
-    ctx.fillText(c,x+barW/2,y-8);
-    ctx.fillStyle='#525252';ctx.font='11px Inter';
+    const hPct=Math.max(c/maxC*100,2);
     const lbl=t[i].name==='Entry'?'$0\u2013$'+Math.round(t[i].hi):t[i].name==='Mid-tier'?'$'+Math.round(t[i].lo)+'\u2013$'+Math.round(t[i].hi):'$'+Math.round(t[i].lo)+'+';
-    ctx.fillText(lbl,x+barW/2,H-14);
-    ctx.textAlign='left';
+    html+='<div class="tier-bar-col clickable-bar" data-filter-type="price" data-filter-value="'+t[i].name+'" data-market="'+mk+'">';
+    html+='<div class="tier-bar-count">'+c+'</div>';
+    html+='<div class="tier-bar-rect" style="height:'+hPct+'%;width:120px;background:linear-gradient(180deg,'+TIER_COLORS[i]+','+TIER_COLORS[i]+'88)"></div>';
+    html+='<div class="tier-bar-label">'+lbl+'</div>';
+    html+='</div>';
   }});
+  wrap.innerHTML=html;
+}});
+
+// Brand bubble cloud
+document.querySelectorAll('[id^="bubble-"]').forEach(container=>{{
+  const mk=container.id.replace('bubble-','');
+  const brandMap={{}};
+  rowData.filter(r=>r.market===mk&&r.brand).forEach(r=>{{brandMap[r.brand]=(brandMap[r.brand]||0)+1;}});
+  const sorted=Object.entries(brandMap).sort((a,b)=>b[1]-a[1]).slice(0,20);
+  let html='';
+  sorted.forEach(([brand,cnt],i)=>{{
+    const color=COLORS[i%10];
+    html+='<span class="bubble clickable-bar" data-filter-type="brand" data-filter-value="'+brand.replace(/"/g,'&quot;')+'" data-market="'+mk+'" style="background:'+color+'">'+brand+' <b>'+cnt+'</b></span>';
+  }});
+  container.innerHTML=html;
 }});
 
 // Click interaction
