@@ -465,9 +465,7 @@ function renderVolChart(mk,fType,fVal){{
     const pct=(r.search_volume/mx*100).toFixed(1);
     h+='<div class="hbar-row hbar-vol"><div class="hbar-label hbar-mono">'+r.asin+'</div><div class="hbar-track"><div class="hbar-fill" style="width:'+pct+'%;background:'+COLORS[i%10]+'"></div><span class="hbar-inline">'+( r.brand||'')+'</span></div></div>';
   }});
-  h+='<div class="vol-xaxis">';
-  for(let i=0;i<=6;i++){{const v=mx*i/6;h+='<span>'+(v>=1000?(v/1000).toFixed(1)+'k':Math.round(v))+'</span>';}}
-  h+='</div>';
+
   c.innerHTML=h;
 }}
 document.querySelectorAll('[id^="vol-chart-"]').forEach(el=>renderVolChart(el.id.replace('vol-chart-',''),null,null));
